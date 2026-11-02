@@ -54,8 +54,8 @@ static int gpueb_ipi_table_init(struct platform_device *pdev)
 {
 	enum table_item_num {
 		send_item_num = 3,
-		recv_item_num = 5
 	};
+	u32 recv_item_num = 4;
 	int ret;
 	u32 i, mbox_id, recv_opt, cb_opt, pin_name_size, cnt_elems;
 	const char *prop_send_table = "send_table";
@@ -123,6 +123,10 @@ static int gpueb_ipi_table_init(struct platform_device *pdev)
 		gpueb_log_d(GPUEB_TAG, "recv table not found");
 		return false;
 	}
+	if (cnt_elems % 5 == 0 && cnt_elems % 4 != 0)
+		recv_item_num = 5;
+	else
+		recv_item_num = 4;
 	gpueb_mboxdev.recv_count = cnt_elems / recv_item_num;
 
 	// Get send PIN name
@@ -271,16 +275,20 @@ static int gpueb_ipi_table_init(struct platform_device *pdev)
 		/* because recv_opt(0:receive ,1: response) is a bit-field */
 		gpueb_mbox_pin_recv[i].recv_opt = recv_opt;
 
-		ret = of_property_read_u32_index(pdev->dev.of_node,
-				prop_recv_table,
-				i * recv_item_num + 4,
-				&cb_opt);
-		if (ret) {
-			gpueb_log_d(GPUEB_TAG, "Cannot get callback opt (%d):%d", i, __LINE__);
-			return false;
+		if (recv_item_num >= 5) {
+			ret = of_property_read_u32_index(pdev->dev.of_node,
+					prop_recv_table,
+					i * recv_item_num + 4,
+					&cb_opt);
+			if (ret) {
+				gpueb_log_d(GPUEB_TAG, "Cannot get callback opt (%d):%d", i, __LINE__);
+				return false;
+			}
+			/* because cb_ctx_opt(0:isr context, 1:process context) is a bit-field */
+			gpueb_mbox_pin_recv[i].cb_ctx_opt = cb_opt;
+		} else {
+			gpueb_mbox_pin_recv[i].cb_ctx_opt = 0;
 		}
-		/* because cb_ctx_opt(0:isr context, 1:process context) is a bit-field */
-		gpueb_mbox_pin_recv[i].cb_ctx_opt = cb_opt;
 	}
 
 	return true;
