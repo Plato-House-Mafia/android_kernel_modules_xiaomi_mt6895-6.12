@@ -633,6 +633,18 @@ static void submit_work_gpufault(struct kbase_device *kbdev, u32 status,
 void kbase_mmu_gpu_fault_interrupt(struct kbase_device *kbdev, u32 status,
 		u32 as_nr, u64 address, bool as_valid)
 {
+	u32 exc = GPU_FAULTSTATUS_EXCEPTION_TYPE_GET(status);
+
+	dev_warn_ratelimited(kbdev->dev,
+		"[GPU-FAULT-IRQ] status=0x%08x exc=0x%02x (%s) as_valid=%d as=%u addr=0x%llx source_id=0x%04x reset_active=%d\n",
+		status, exc, kbase_gpu_exception_name(exc),
+		as_valid, as_nr, address,
+		(status & GPU_FAULTSTATUS_SOURCE_ID_MASK) >> GPU_FAULTSTATUS_SOURCE_ID_SHIFT,
+		kbase_reset_gpu_is_active(kbdev));
+
+	if (kbase_reset_gpu_is_active(kbdev))
+		return;
+
 	if (!as_valid || (as_nr == MCU_AS_NR)) {
 		int as;
 

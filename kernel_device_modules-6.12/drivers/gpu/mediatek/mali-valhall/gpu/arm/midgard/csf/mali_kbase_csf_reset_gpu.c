@@ -497,8 +497,10 @@ static int kbase_csf_reset_gpu_now(struct kbase_device *kbdev,
 
 	mutex_lock(&kbdev->pm.lock);
 	kbase_pm_reset_complete(kbdev);
+	dev_info(kbdev->dev, "[RESET-SYNC-WAIT] Waiting synchronously for firmware reload to complete (desired state)...\n");
 	/* Synchronously wait for the reload of firmware to complete */
 	err = kbase_pm_wait_for_desired_state(kbdev);
+	dev_info(kbdev->dev, "[RESET-SYNC-WAIT] Firmware reload wait finished, err=%d\n", err);
 	mutex_unlock(&kbdev->pm.lock);
 
 	if (WARN_ON(err)) {

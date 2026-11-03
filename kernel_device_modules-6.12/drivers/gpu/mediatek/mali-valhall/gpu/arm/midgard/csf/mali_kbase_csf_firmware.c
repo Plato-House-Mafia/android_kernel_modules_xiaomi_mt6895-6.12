@@ -1255,42 +1255,52 @@ static int reload_fw_data_sections(struct kbase_device *kbdev)
 	struct kbase_csf_firmware_interface *interface;
 	const struct firmware *firmware;
 	int ret = 0;
+	int iface_idx = 0;
 
+	dev_info(kbdev->dev, "[RELOAD-1] Requesting firmware '%s' via request_firmware...\n", reload_fw_name);
 	if (request_firmware(&firmware, reload_fw_name, kbdev->dev) != 0) {
 		dev_err(kbdev->dev,
-			"Failed to reload firmware image '%s'\n",
+			"[RELOAD-ERR] Failed to reload firmware image '%s'\n",
 			reload_fw_name);
 		return -ENOENT;
 	}
+	dev_info(kbdev->dev, "[RELOAD-2] Firmware '%s' loaded, size=%zu\n", reload_fw_name, firmware->size);
 
 	/* Do couple of basic sanity checks */
 	if (firmware->size < FIRMWARE_HEADER_LENGTH) {
-		dev_err(kbdev->dev, "Firmware image unexpectedly too small\n");
+		dev_err(kbdev->dev, "[RELOAD-ERR] Firmware image unexpectedly too small\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (memcmp(firmware->data, &magic, sizeof(magic)) != 0) {
-		dev_err(kbdev->dev, "Incorrect magic value, firmware image could have been corrupted\n");
+		dev_err(kbdev->dev, "[RELOAD-ERR] Incorrect magic value, firmware image could have been corrupted\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	list_for_each_entry(interface, &kbdev->csf.firmware_interfaces, node) {
+		iface_idx++;
 		/* Skip reload of text & read only data sections */
 		if ((interface->flags & CSF_FIRMWARE_ENTRY_EXECUTE) ||
 		    !(interface->flags & CSF_FIRMWARE_ENTRY_WRITE))
 			continue;
+
+		dev_info(kbdev->dev, "[RELOAD-3] Reloading iface #%d (flags=0x%x, pgs=%u, start=0x%x, end=0x%x)\n",
+			iface_idx, interface->flags, interface->num_pages, interface->data_start, interface->data_end);
 
 		load_fw_image_section(kbdev, firmware->data, interface->phys,
 			interface->num_pages, interface->flags,
 			interface->data_start, interface->data_end);
 	}
 
+	dev_info(kbdev->dev, "[RELOAD-4] Reloading trace buffers data...\n");
 	kbase_csf_firmware_reload_trace_buffers_data(kbdev);
 
 out:
+	dev_info(kbdev->dev, "[RELOAD-5] Releasing firmware structure...\n");
 	release_firmware(firmware);
+	dev_info(kbdev->dev, "[RELOAD-6] release_firmware done, ret=%d\n", ret);
 	return ret;
 }
 
@@ -2557,11 +2567,12 @@ static void kbase_csf_firmware_reload_worker(struct work_struct *work)
 						  csf.firmware_reload_work);
 	int err;
 
-	dev_info(kbdev->dev, "reloading firmware");
+	dev_info(kbdev->dev, "[RELOAD-WORKER] Started firmware reload worker\n");
 
 	/* Reload just the data sections from firmware binary image */
 	err = reload_fw_data_sections(kbdev);
 	if (err) {
+		dev_err(kbdev->dev, "[RELOAD-WORKER-ERR] reload_fw_data_sections returned %d, MCU will NOT be re-enabled!\n", err);
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		ged_log_buf_print2(
 			 kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
@@ -2570,12 +2581,16 @@ static void kbase_csf_firmware_reload_worker(struct work_struct *work)
 		return;
 	}
 
+	dev_info(kbdev->dev, "[RELOAD-WORKER] Resetting csf_tl_reader...\n");
 	kbase_csf_tl_reader_reset(&kbdev->timeline->csf_tl_reader);
 
 	/* Reboot the firmware */
+	dev_info(kbdev->dev, "[RELOAD-WORKER] Applying firmware patch hook...\n");
 	kbase_csf_firmware_apply_patch_hook(kbdev);
 
+	dev_info(kbdev->dev, "[RELOAD-WORKER] Re-enabling MCU via MCU_CONTROL...\n");
 	kbase_csf_firmware_enable_mcu(kbdev);
+	dev_info(kbdev->dev, "[RELOAD-WORKER] MCU enable command written successfully!\n");
 }
 
 void kbase_csf_firmware_trigger_reload(struct kbase_device *kbdev)
@@ -2600,13 +2615,20 @@ void kbase_csf_firmware_reload_completed(struct kbase_device *kbdev)
 
 	lockdep_assert_held(&kbdev->hwaccess_lock);
 
-	if (unlikely(!kbdev->csf.firmware_inited))
+	dev_info(kbdev->dev, "[RELOAD-ACK] Firmware reload completion callback invoked!\n");
+
+	if (unlikely(!kbdev->csf.firmware_inited)) {
+		dev_warn(kbdev->dev, "[RELOAD-ACK] firmware_inited is false, ignoring completion\n");
 		return;
+	}
 
 	/* Check firmware rebooted properly: we do not expect
 	 * the version number to change with a running reboot.
 	 */
 	version = get_firmware_version(kbdev);
+
+	dev_info(kbdev->dev, "[RELOAD-ACK] Rebooted firmware version=0x%08x (expected=0x%08x)\n",
+		 version, kbdev->csf.global_iface.version);
 
 	if (version != kbdev->csf.global_iface.version) {
 		dev_err(kbdev->dev, "Version check failed in firmware reboot.");
@@ -2621,6 +2643,7 @@ void kbase_csf_firmware_reload_completed(struct kbase_device *kbdev)
 
 	/* Tell MCU state machine to transit to next state */
 	kbdev->csf.firmware_reloaded = true;
+	dev_info(kbdev->dev, "[RELOAD-ACK] firmware_reloaded set to true, updating state\n");
 	kbase_pm_update_state(kbdev);
 }
 
