@@ -639,7 +639,7 @@ void kbase_mmu_gpu_fault_interrupt(struct kbase_device *kbdev, u32 status,
 		"[GPU-FAULT-IRQ] status=0x%08x exc=0x%02x (%s) as_valid=%d as=%u addr=0x%llx source_id=0x%04x reset_active=%d\n",
 		status, exc, kbase_gpu_exception_name(exc),
 		as_valid, as_nr, address,
-		(status & GPU_FAULTSTATUS_SOURCE_ID_MASK) >> GPU_FAULTSTATUS_SOURCE_ID_SHIFT,
+		(u32)((status & GPU_FAULTSTATUS_SOURCE_ID_MASK) >> GPU_FAULTSTATUS_SOURCE_ID_SHIFT),
 		kbase_reset_gpu_is_active(kbdev));
 
 	if (kbase_reset_gpu_is_active(kbdev))
