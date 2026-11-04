@@ -2452,8 +2452,9 @@ static void kbase_pm_wait_for_reset(struct kbase_device *kbdev)
 {
 	lockdep_assert_held(&kbdev->pm.lock);
 
-	wait_event(kbdev->pm.backend.reset_done_wait,
-						(kbdev->pm.backend.reset_done));
+	wait_event_timeout(kbdev->pm.backend.reset_done_wait,
+						(kbdev->pm.backend.reset_done),
+						msecs_to_jiffies(RESET_TIMEOUT + 500));
 	kbdev->pm.backend.reset_done = false;
 }
 
@@ -2712,7 +2713,6 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 	KBASE_TLSTREAM_JD_GPU_SOFT_RESET(kbdev, kbdev);
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: triggering GPU soft reset...\n");
-	msleep(100);
 
 	if (kbdev->pm.backend.callback_soft_reset) {
 		ret = kbdev->pm.backend.callback_soft_reset(kbdev);
@@ -2726,10 +2726,12 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 	}
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: soft reset issued, unmasking RESET_COMPLETED...\n");
-	msleep(100);
 
 	/* Unmask the reset complete interrupt only */
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), RESET_COMPLETED);
+
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: RESET_COMPLETED unmasked, arming timeout timer (RAWSTAT=0x%08x)...\n",
+		 kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
 
 	/* Initialize a structure for tracking the status of the reset */
 	rtdata.kbdev = kbdev;
@@ -2742,11 +2744,15 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 	hrtimer_start(&rtdata.timer, HR_TIMER_DELAY_MSEC(RESET_TIMEOUT),
 							HRTIMER_MODE_REL);
 
-	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for reset completion interrupt...\n");
-	msleep(100);
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for reset completion interrupt (RAWSTAT=0x%08x GPU_STATUS=0x%08x)...\n",
+		 kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)),
+		 kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_STATUS)));
 
 	/* Wait for the RESET_COMPLETED interrupt to be raised */
 	kbase_pm_wait_for_reset(kbdev);
+
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: wait_for_reset returned (timed_out=%d, RAWSTAT=0x%08x)\n",
+		 rtdata.timed_out, kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
 
 #if IS_ENABLED(CONFIG_MALI_MTK_TIMEOUT_RESET)
 	if (!kbdev->reset_force_hard_reset) {

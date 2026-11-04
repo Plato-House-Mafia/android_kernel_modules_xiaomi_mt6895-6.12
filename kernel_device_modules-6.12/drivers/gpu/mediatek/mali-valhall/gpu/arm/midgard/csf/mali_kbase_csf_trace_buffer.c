@@ -314,11 +314,26 @@ void kbase_csf_firmware_reload_trace_buffers_data(struct kbase_device *kbdev)
 	u32 mcu_rw_offset = 0, mcu_write_offset = 0;
 	const u32 cache_line_alignment = kbase_get_cache_line_alignment(kbdev);
 
+	dev_info(kbdev->dev, "[RELOAD-TB] Reload trace buffers data started\n");
+
+	if (!kbdev->csf.firmware_trace_buffers.mcu_rw.va_reg ||
+	    !kbdev->csf.firmware_trace_buffers.mcu_write.va_reg) {
+		dev_warn(kbdev->dev, "[RELOAD-TB] mcu_rw/mcu_write va_reg is NULL, skipping\n");
+		return;
+	}
+
 	list_for_each_entry(trace_buffer, &kbdev->csf.firmware_trace_buffers.list, node) {
 		u32 extract_gpu_va, insert_gpu_va, data_buffer_gpu_va,
 			trace_enable_size_dwords;
 		u32 *extract_cpu_va, *insert_cpu_va;
 		unsigned int i;
+
+		dev_info(kbdev->dev, "[RELOAD-TB] Processing buffer '%s'\n", trace_buffer->name);
+
+		if (!trace_buffer->data_mapping.va_reg) {
+			dev_warn(kbdev->dev, "[RELOAD-TB] '%s' data_mapping.va_reg is NULL, skipping\n", trace_buffer->name);
+			continue;
+		}
 
 		/* Rely on the fact that all required mappings already exist */
 		extract_gpu_va =
@@ -375,6 +390,7 @@ void kbase_csf_firmware_reload_trace_buffers_data(struct kbase_device *kbdev)
 		mcu_write_offset += cache_line_alignment;
 		mcu_rw_offset += cache_line_alignment;
 	}
+	dev_info(kbdev->dev, "[RELOAD-TB] Reload trace buffers data completed successfully\n");
 }
 
 struct firmware_trace_buffer *kbase_csf_firmware_get_trace_buffer(

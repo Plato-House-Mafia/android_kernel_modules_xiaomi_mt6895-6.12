@@ -2357,6 +2357,12 @@ static int term_group_sync(struct kbase_queue_group *group)
 	long remaining = kbase_csf_timeout_in_jiffies(kbdev->csf.fw_timeout_ms);
 	int err = 0;
 
+	/* If GPU reset is already prepared/active or faults are pending, don't wait 12s for dead firmware */
+	if (kbase_reset_gpu_is_active(kbdev) ||
+	    atomic_read(&kbdev->csf.reset.state) != KBASE_CSF_RESET_GPU_NOT_PENDING ||
+	    atomic_read(&kbdev->faults_pending) > 0)
+		remaining = msecs_to_jiffies(10);
+
 	term_csg_slot(group);
 
 	remaining = wait_event_timeout(kbdev->csf.event_wait,
@@ -2390,6 +2396,11 @@ void kbase_csf_scheduler_group_deschedule(struct kbase_queue_group *group)
 	long remaining =
 		kbase_csf_timeout_in_jiffies(CSG_SCHED_STOP_TIMEOUT_MS);
 	bool force = false;
+
+	if (kbase_reset_gpu_is_active(kbdev) ||
+	    atomic_read(&kbdev->csf.reset.state) != KBASE_CSF_RESET_GPU_NOT_PENDING ||
+	    atomic_read(&kbdev->faults_pending) > 0)
+		force = true;
 
 	kbase_reset_gpu_assert_failed_or_prevented(kbdev);
 	lockdep_assert_held(&group->kctx->csf.lock);

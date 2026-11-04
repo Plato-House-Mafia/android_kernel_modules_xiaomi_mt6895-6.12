@@ -1907,28 +1907,50 @@ static inline void access_firmware_memory(struct kbase_device *kbdev,
 		if ((gpu_addr >= interface->virtual) &&
 			(gpu_addr < interface->virtual + (interface->num_pages << PAGE_SHIFT))) {
 			u32 offset_bytes = gpu_addr - interface->virtual;
-			u32 page_num = offset_bytes >> PAGE_SHIFT;
-			u32 offset_in_page = offset_bytes & ~PAGE_MASK;
-			struct page *target_page = as_page(
-				interface->phys[page_num]);
-			u32 *cpu_addr = kmap_atomic(target_page);
 
-			if (read) {
-				kbase_sync_single_for_device(kbdev,
-					kbase_dma_addr(target_page) + offset_in_page,
-					sizeof(u32), DMA_BIDIRECTIONAL);
-
-				*value = cpu_addr[offset_in_page >> 2];
-			} else {
-				cpu_addr[offset_in_page >> 2] = *value;
-
-				kbase_sync_single_for_device(kbdev,
-					kbase_dma_addr(target_page) + offset_in_page,
-					sizeof(u32), DMA_BIDIRECTIONAL);
+			/* If a direct kernel CPU virtual mapping exists, use it directly */
+			if (interface->kernel_map) {
+				u32 *ptr = (u32 *)((u8 *)interface->kernel_map + offset_bytes);
+				if (read) {
+					*value = READ_ONCE(*ptr);
+				} else {
+					WRITE_ONCE(*ptr, *value);
+					/* Ensure memory write is committed to RAM */
+					dmb(ish);
+				}
+				return;
 			}
 
-			kunmap_atomic(cpu_addr);
-			return;
+			/* Skip protected PMA memory safely */
+			if (interface->pma || (interface->flags & CSF_FIRMWARE_ENTRY_PROTECTED)) {
+				dev_warn(kbdev->dev, "access_firmware_memory: cannot access protected PMA interface '%s'\n",
+					interface->name ? interface->name : "unnamed");
+				return;
+			}
+
+			if (interface->phys) {
+				u32 page_num = offset_bytes >> PAGE_SHIFT;
+				u32 offset_in_page = offset_bytes & ~PAGE_MASK;
+				struct page *target_page = as_page(interface->phys[page_num]);
+
+				if (target_page) {
+					u32 *cpu_addr = kmap_atomic(target_page);
+
+					if (read) {
+						*value = cpu_addr[offset_in_page >> 2];
+					} else {
+						cpu_addr[offset_in_page >> 2] = *value;
+					}
+					kunmap_atomic(cpu_addr);
+
+					if (kbase_dma_addr(target_page)) {
+						kbase_sync_single_for_device(kbdev,
+							kbase_dma_addr(target_page) + offset_in_page,
+							sizeof(u32), DMA_BIDIRECTIONAL);
+					}
+					return;
+				}
+			}
 		}
 	}
 	dev_warn(kbdev->dev, "Invalid GPU VA %x passed\n", gpu_addr);
