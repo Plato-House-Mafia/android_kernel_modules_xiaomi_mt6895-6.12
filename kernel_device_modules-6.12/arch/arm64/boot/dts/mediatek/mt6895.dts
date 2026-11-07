@@ -531,6 +531,12 @@
 			alloc-ranges = <0 0x50000000 0 0x40000000>;
 		};
 
+		sspm_ap_shared: sspm_ap-shared {
+			compatible = "mediatek,sspm_ap-shared";
+			reg = <0 0x7c4f0000 0 0x110000>;
+			no-map;
+		};
+
 		ssmr_cma_mem: ssmr-reserved-cma_memory {
 			compatible = "shared-dma-pool";
 			reusable;
@@ -771,6 +777,8 @@
 		interrupts = <GIC_SPI 289 IRQ_TYPE_LEVEL_HIGH 0>;
 
 		interrupt-names = "ipc";
+		sspm-share-region-base = <0x7c4f0000>;
+		sspm-share-region-size = <0x110000>;
 		sspm-res-ram-start = <0x0>;
 		sspm-res-ram-size = <0x110000>; /* 1M + 64K */
 	};
@@ -3433,7 +3441,7 @@
 			gpueb_mem_size = <0x0 0x200000>;
 
 			gpueb_mem_table =
-				<0 0x1000>,   /* 4KB */
+				<0 0x4000>,   /* 16KB */
 				<1 0x180000>; /* 1.5MB */
 
 			gpueb_mem_name_table =
@@ -3441,7 +3449,7 @@
 				"MEM_ID_LOG";     /* LOGGER */
 
 			gpueb-mem-table =
-				<0 0x1000>,   /* 4KB */
+				<0 0x4000>,   /* 16KB */
 				<1 0x180000>; /* 1.5MB */
 
 			gpueb-mem-name-table =
